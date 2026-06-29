@@ -10,22 +10,27 @@ export default async function handler(req, res) {
   const { q } = req.query;
   if (!q) return res.status(400).json({ error: 'Query required' });
 
+  // Determine price range based on product type
+  const productLower = q.toLowerCase();
+  let minPrice = 500;
+  let maxPrice = 300000;
+
+  if (productLower.includes('iphone') || productLower.includes('samsung') || productLower.includes('موبايل')) {
+    minPrice = 8000; maxPrice = 150000;
+  } else if (productLower.includes('laptop') || productLower.includes('لابتوب') || productLower.includes('macbook')) {
+    minPrice = 15000; maxPrice = 200000;
+  } else if (productLower.includes('tv') || productLower.includes('تليفزيون') || productLower.includes('شاشة')) {
+    minPrice = 5000; maxPrice = 150000;
+  } else if (productLower.includes('airpods') || productLower.includes('سماعة') || productLower.includes('earbuds')) {
+    minPrice = 500; maxPrice = 20000;
+  } else if (productLower.includes('watch') || productLower.includes('ساعة')) {
+    minPrice = 2000; maxPrice = 80000;
+  }
+
   const stores = [
-    { 
-      name: 'أمازون مصر', 
-      url: `https://www.amazon.eg/s?k=${encodeURIComponent(q)}&sort=relevancerank`,
-      minPrice: 1000
-    },
-    { 
-      name: 'جوميا', 
-      url: `https://www.jumia.com.eg/catalog/?q=${encodeURIComponent(q)}`,
-      minPrice: 1000
-    },
-    {
-      name: 'نون',
-      url: `https://www.noon.com/egypt-ar/search/?q=${encodeURIComponent(q)}`,
-      minPrice: 1000
-    }
+    { name: 'أمازون مصر', url: `https://www.amazon.eg/s?k=${encodeURIComponent(q)}&sort=relevancerank` },
+    { name: 'جوميا', url: `https://www.jumia.com.eg/catalog/?q=${encodeURIComponent(q)}` },
+    { name: 'نون', url: `https://www.noon.com/egypt-ar/search/?q=${encodeURIComponent(q)}` },
   ];
 
   const results = [];
@@ -38,12 +43,10 @@ export default async function handler(req, res) {
           'Accept': 'text/html,application/xhtml+xml',
           'Accept-Language': 'ar-EG,ar;q=0.9,en;q=0.8',
         },
-        signal: AbortSignal.timeout(8000)
+        signal: AbortSignal.timeout(10000)
       });
 
       const html = await response.text();
-
-      // Extract ALL prices from page
       const allPrices = [];
       
       const patterns = [
@@ -58,36 +61,28 @@ export default async function handler(req, res) {
         let match;
         while ((match = pattern.exec(html)) !== null) {
           const price = parseInt(match[1].replace(/[,،]/g, ''));
-          // Filter: must be realistic product price (not accessory)
-          if (price >= store.minPrice && price <= 300000) {
+          if (price >= minPrice && price <= maxPrice) {
             allPrices.push(price);
           }
-          if (allPrices.length >= 20) break;
+          if (allPrices.length >= 30) break;
         }
       }
 
       if (allPrices.length > 0) {
-        // Sort prices and take the median to avoid outliers
         allPrices.sort((a, b) => a - b);
+        // Take median price
+        const medianIndex = Math.floor(allPrices.length / 2);
+        const price = allPrices[medianIndex];
+        const minP = allPrices[0];
+        const maxP = allPrices[allPrices.length - 1];
         
-        // Remove top 20% (might be premium accessories) and bottom 10% (might be wrong)
-        const start = Math.floor(allPrices.length * 0.1);
-        const end = Math.floor(allPrices.length * 0.7);
-        const filtered = allPrices.slice(start, end + 1);
-        
-        if (filtered.length > 0) {
-          // Take the most common price range (first quartile of filtered)
-          const price = filtered[Math.floor(filtered.length * 0.25)];
-          results.push({ 
-            store: store.name, 
-            price, 
-            link: store.url,
-            priceRange: {
-              min: Math.min(...filtered),
-              max: Math.max(...filtered)
-            }
-          });
-        }
+        results.push({ 
+          store: store.name, 
+          price,
+          minPrice: minP,
+          maxPrice: maxP,
+          link: store.url
+        });
       }
     } catch(e) {
       console.log(`${store.name} failed:`, e.message);
